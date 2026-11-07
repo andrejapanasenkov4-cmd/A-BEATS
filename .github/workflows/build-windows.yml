@@ -10,53 +10,82 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare source layout
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force app, assets, tests | Out-Null
+          foreach ($name in @('__init__.py','core.py','itunes_discography.py','main.py','quota.py','token_store.py','youtube_api.py')) {
+            if (-not (Test-Path $name)) { throw "Missing required source file: $name" }
+            Copy-Item $name app/
+          }
+          foreach ($name in @('a_beats.ico','a_beats_16.png','a_beats_32.png','a_beats_48.png','a_beats_64.png','a_beats_128.png','a_beats_256.png')) {
+            if (Test-Path $name) { Copy-Item $name assets/ }
+          }
+          foreach ($name in @('test_core.py','test_render_integration.py','test_token_store.py')) {
+            if (-not (Test-Path $name)) { throw "Missing test file: $name" }
+            Copy-Item $name tests/
+          }
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
           architecture: x64
-      - name: Check source tree
-        shell: pwsh
-        run: |
-          $required = @('app/main.py','requirements.txt','BUILD_INSTALLER.iss','tests')
-          foreach ($p in $required) {
-            if (-not (Test-Path $p)) { throw "Missing source path: $p. Upload the contents of the A-BEATS source ZIP to the repository root first." }
-          }
+
       - name: Install dependencies
+        shell: pwsh
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pytest pyinstaller
-      - name: Download FFmpeg
+
+      - name: Download FFmpeg runtime
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           $zip = Join-Path $env:RUNNER_TEMP 'ffmpeg.zip'
-          $dst = Join-Path $env:RUNNER_TEMP 'ffmpeg'
-          Invoke-WebRequest 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip' -OutFile $zip
-          Expand-Archive $zip $dst -Force
-          $ffmpeg = Get-ChildItem $dst -Filter ffmpeg.exe -Recurse | Select-Object -First 1
-          $ffprobe = Get-ChildItem $dst -Filter ffprobe.exe -Recurse | Select-Object -First 1
-          if (-not $ffmpeg) { throw 'ffmpeg.exe missing' }
-          New-Item -ItemType Directory -Force runtime/ffmpeg/bin | Out-Null
-          Copy-Item $ffmpeg.FullName runtime/ffmpeg/bin/ffmpeg.exe
-          if ($ffprobe) { Copy-Item $ffprobe.FullName runtime/ffmpeg/bin/ffprobe.exe }
+          $extract = Join-Path $env:RUNNER_TEMP 'ffmpeg-extract'
+          Invoke-WebRequest -UseBasicParsing 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip' -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath $extract -Force
+          $ffmpeg = Get-ChildItem $extract -Filter ffmpeg.exe -Recurse | Select-Object -First 1
+          $ffprobe = Get-ChildItem $extract -Filter ffprobe.exe -Recurse | Select-Object -First 1
+          if (-not $ffmpeg) { throw 'ffmpeg.exe not found in FFmpeg archive.' }
+          New-Item -ItemType Directory -Force -Path 'runtime\ffmpeg\bin' | Out-Null
+          Copy-Item $ffmpeg.FullName 'runtime\ffmpeg\bin\ffmpeg.exe'
+          if ($ffprobe) { Copy-Item $ffprobe.FullName 'runtime\ffmpeg\bin\ffprobe.exe' }
+
       - name: Run tests
+        shell: pwsh
         run: |
           python -m pytest -q
-      - name: Build application
+          if ($LASTEXITCODE -ne 0) { throw 'Pytest suite failed.' }
+
+      - name: Build desktop application
         shell: pwsh
         run: |
-          python -m PyInstaller --noconfirm --clean --windowed --onedir --name A-BEATS --icon assets/a_beats.ico --add-data "assets;assets" --collect-all googleapiclient --collect-all google_auth_oauthlib --collect-all google.auth --collect-all tzdata --collect-all PIL --hidden-import google.auth.transport.requests --hidden-import google_auth_oauthlib.flow --hidden-import core --hidden-import quota --hidden-import youtube_api --hidden-import itunes_discography --hidden-import token_store app/main.py
-          New-Item -ItemType Directory -Force dist/A-BEATS/ffmpeg/bin | Out-Null
-          Copy-Item runtime/ffmpeg/bin/* dist/A-BEATS/ffmpeg/bin/ -Force
-          Copy-Item README.md,PRIVACY.md,VERSION,CHANGELOG.md,THIRD_PARTY_NOTICES.md dist/A-BEATS/
+          python -m PyInstaller --noconfirm --clean --windowed --onedir --name A-BEATS --icon assets\a_beats.ico --add-data "assets;assets" --collect-all googleapiclient --collect-all google_auth_oauthlib --collect-all google.auth --collect-all tzdata --collect-all PIL --hidden-import google.auth.transport.requests --hidden-import google_auth_oauthlib.flow app\main.py
+          if ($LASTEXITCODE -ne 0) { throw 'PyInstaller build failed.' }
+          New-Item -ItemType Directory -Force -Path 'dist\A-BEATS\ffmpeg\bin' | Out-Null
+          Copy-Item 'runtime\ffmpeg\bin\*' 'dist\A-BEATS\ffmpeg\bin\' -Force
+          Copy-Item README.md,PRIVACY.md,VERSION,CHANGELOG.md,THIRD_PARTY_NOTICES.md 'dist\A-BEATS\'
+
       - name: Install Inno Setup
+        shell: pwsh
         run: choco install innosetup --yes --no-progress
-      - name: Build installer
+
+      - name: Build Setup.exe
         shell: pwsh
         run: |
-          & 'C:/Program Files (x86)/Inno Setup 6/ISCC.exe' BUILD_INSTALLER.iss
-          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup failed' }
-      - uses: actions/upload-artifact@v4
+          $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc)) { throw 'Inno Setup compiler not found.' }
+          & $iscc BUILD_INSTALLER.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup build failed.' }
+
+      - name: Upload Windows release
+        uses: actions/upload-artifact@v4
         with:
           name: A-BEATS-Windows-x64
           path: |
