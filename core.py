@@ -67,7 +67,7 @@ def _image_match_score(audio_stem: str, image_stem: str) -> float:
         return min(len(a), len(b)) / max(len(a), len(b))
     tokens_a = {t for t in re.split(r"[^a-zа-яё0-9]+", Path(audio_stem).stem.lower()) if len(t) > 1}
     tokens_b = {t for t in re.split(r"[^a-zа-яё0-9]+", Path(image_stem).stem.lower()) if len(t) > 1}
-    return len(tokens_a & tokens_b) / len(tokens_a | tokens_b) if tokens_a and tokens_b else 0.0
+    return len(tokens_a & tokens_b) / len(tokens_a) if tokens_a and tokens_b else 0.0
 
 
 def pair_audio_and_covers(audio_dir: str | Path, cover_dir: str | Path) -> list[BeatItem]:
