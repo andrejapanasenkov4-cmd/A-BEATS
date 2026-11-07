@@ -48,7 +48,20 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $zip = Join-Path $env:RUNNER_TEMP 'ffmpeg.zip'
           $extract = Join-Path $env:RUNNER_TEMP 'ffmpeg-extract'
-          Invoke-WebRequest -UseBasicParsing 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip' -OutFile $zip
+          $downloaded = $false
+          for ($attempt = 1; $attempt -le 5; $attempt++) {
+            try {
+              Invoke-WebRequest -UseBasicParsing 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip' -OutFile $zip -TimeoutSec 180
+              if ((Get-Item $zip).Length -gt 1000000) { $downloaded = $true; break }
+              throw 'Downloaded FFmpeg archive is unexpectedly small.'
+            } catch {
+              Write-Warning "FFmpeg download attempt $attempt failed: $_"
+              if ($attempt -lt 5) { Start-Sleep -Seconds (10 * $attempt) }
+            }
+          }
+          if (-not $downloaded) {
+            throw 'Could not download FFmpeg after 5 attempts. The upstream host may be temporarily unavailable; rerun the workflow.'
+          }
           Expand-Archive -Path $zip -DestinationPath $extract -Force
           $ffmpeg = Get-ChildItem $extract -Filter ffmpeg.exe -Recurse | Select-Object -First 1
           $ffprobe = Get-ChildItem $extract -Filter ffprobe.exe -Recurse | Select-Object -First 1
