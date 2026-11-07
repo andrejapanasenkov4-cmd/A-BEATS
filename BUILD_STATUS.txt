@@ -1,0 +1,19 @@
+A-BEATS 1.2.0 — release validation status
+
+Source package: assembled.
+Windows per-user installer scripts: included (INSTALL_A-BEATS.bat + install_windows.ps1).
+Windows launcher and dependency bootstrap: included (START_A-BEATS.bat + install_and_run.ps1).
+Windows EXE / Setup.exe build scripts: included (BUILD_EXE.bat + BUILD_INSTALLER.iss).
+Cloud Windows x64 build workflow: included (.github/workflows/build-windows.yml); workflow YAML parsed successfully.
+Python syntax compilation: passed.
+Unit tests: 14/14 passed.
+Pytest suite: 18/18 passed, including real FFmpeg integration tests for 1920x1080 and 3840x2160 MP4 (H.264 + AAC verified).
+Tkinter GUI smoke test under Xvfb: passed (1200x790; window constructed and closed cleanly).
+Queue persistence: atomic JSON write + backup; per-channel video IDs; immediate save after YouTube returns video ID.
+OAuth token storage: Windows DPAPI encryption for current Windows user; legacy plaintext token files remain readable and migrate to DPAPI on refresh.
+Background-thread safety: upload worker captures UI variables on the main thread; unhandled worker errors are surfaced to the UI.
+Duplicate-upload protection: uncertain in-flight uploads are persisted and blocked until manual Studio verification; the user can record an existing Video ID or explicitly authorize a retry.
+Quota guard: local conservative limit of 90 videos.insert attempts per Pacific calendar day.
+Windows EXE / Setup.exe: not compiled in this Linux environment. Windows compiler/runtime unavailable here; build using BUILD_EXE.bat or the included GitHub Actions workflow.
+Live Google OAuth / YouTube upload: not executed; requires the owner's Google Cloud OAuth client and authorization to the target YouTube channel.
+Browser mode: manual YouTube Studio handoff + CSV manifest; no hidden browser automation or platform restriction bypass.
