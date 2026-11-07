@@ -11,8 +11,13 @@ from pathlib import Path
 from typing import Callable, Iterable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".wma"}
-IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
+AUDIO_EXTENSIONS = {
+    ".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".wma",
+    ".aif", ".aiff", ".alac", ".opus", ".ape", ".caf", ".amr", ".3gp",
+}
+IMAGE_EXTENSIONS = {
+    ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff", ".gif",
+}
 
 
 @dataclass
@@ -52,25 +57,55 @@ def _normalize_stem(value: str) -> str:
     return value
 
 
+def _image_match_score(audio_stem: str, image_stem: str) -> float:
+    a, b = _normalize_stem(audio_stem), _normalize_stem(image_stem)
+    if not a or not b:
+        return 0.0
+    if a == b:
+        return 1.0
+    if min(len(a), len(b)) >= 4 and (a in b or b in a):
+        return min(len(a), len(b)) / max(len(a), len(b))
+    tokens_a = {t for t in re.split(r"[^a-zа-яё0-9]+", Path(audio_stem).stem.lower()) if len(t) > 1}
+    tokens_b = {t for t in re.split(r"[^a-zа-яё0-9]+", Path(image_stem).stem.lower()) if len(t) > 1}
+    return len(tokens_a & tokens_b) / len(tokens_a | tokens_b) if tokens_a and tokens_b else 0.0
+
+
 def pair_audio_and_covers(audio_dir: str | Path, cover_dir: str | Path) -> list[BeatItem]:
+    """Recursively find supported media and pair images conservatively by filename."""
     audio_root, cover_root = Path(audio_dir), Path(cover_dir)
     if not audio_root.is_dir():
         raise ValueError("Папка с битами не найдена.")
     if not cover_root.is_dir():
         raise ValueError("Папка с обложками не найдена.")
 
-    covers: dict[str, list[Path]] = {}
-    for file in cover_root.iterdir():
-        if file.is_file() and file.suffix.lower() in IMAGE_EXTENSIONS:
-            covers.setdefault(_normalize_stem(file.name), []).append(file)
+    cover_files = sorted(
+        (p for p in cover_root.rglob("*") if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS),
+        key=lambda p: str(p).lower(),
+    )
+    audio_files = sorted(
+        (p for p in audio_root.rglob("*") if p.is_file() and p.suffix.lower() in AUDIO_EXTENSIONS),
+        key=lambda p: str(p).lower(),
+    )
+    covers_by_key: dict[str, list[Path]] = {}
+    for cover in cover_files:
+        covers_by_key.setdefault(_normalize_stem(cover.name), []).append(cover)
 
     items: list[BeatItem] = []
-    for audio in sorted(audio_root.iterdir(), key=lambda p: p.name.lower()):
-        if not audio.is_file() or audio.suffix.lower() not in AUDIO_EXTENSIONS:
-            continue
-        matches = covers.get(_normalize_stem(audio.name), [])
-        cover = str(matches[0]) if len(matches) == 1 else ""
-        items.append(BeatItem(audio_path=str(audio), cover_path=cover, title=audio.stem))
+    for audio in audio_files:
+        exact = covers_by_key.get(_normalize_stem(audio.name), [])
+        chosen = exact[0] if len(exact) == 1 else None
+        if not exact and cover_files:
+            scored = sorted(
+                ((_image_match_score(audio.stem, cover.stem), cover) for cover in cover_files),
+                key=lambda pair: pair[0], reverse=True,
+            )
+            if scored and scored[0][0] >= 0.60:
+                second = scored[1][0] if len(scored) > 1 else 0.0
+                if scored[0][0] - second >= 0.15:
+                    chosen = scored[0][1]
+        items.append(BeatItem(
+            audio_path=str(audio), cover_path=str(chosen) if chosen else "", title=audio.stem
+        ))
     return items
 
 
