@@ -41,6 +41,34 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(len(items), 1)
             self.assertEqual(items[0].cover_path, "")
 
+    def test_recursive_media_discovery_and_additional_extensions(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            audio = root / "audio"
+            covers = root / "covers"
+            (audio / "subfolder").mkdir(parents=True)
+            (covers / "artwork").mkdir(parents=True)
+            (audio / "subfolder" / "Night Drive.aiff").write_bytes(b"audio")
+            (covers / "artwork" / "Night Drive_cover.tiff").write_bytes(b"image")
+            items = pair_audio_and_covers(audio, covers)
+            self.assertEqual(len(items), 1)
+            self.assertTrue(items[0].audio_path.endswith("Night Drive.aiff"))
+            self.assertTrue(items[0].cover_path.endswith("Night Drive_cover.tiff"))
+
+    def test_fuzzy_cover_match_when_filename_has_extra_words(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            audio = root / "audio"
+            covers = root / "covers"
+            audio.mkdir()
+            covers.mkdir()
+            (audio / "ACID 2.wav").write_bytes(b"audio")
+            (covers / "ACID 2 final artwork.jpg").write_bytes(b"image")
+            items = pair_audio_and_covers(audio, covers)
+            self.assertEqual(len(items), 1)
+            self.assertTrue(items[0].cover_path.endswith("ACID 2 final artwork.jpg"))
+
+
     def test_export_manifest_writes_schedule_and_metadata(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "manifest.csv"
